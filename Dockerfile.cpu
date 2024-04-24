@@ -1,20 +1,40 @@
 # This vLLM Dockerfile is used to construct image that can build and run vLLM on x86 CPU platform.
 
-FROM ubuntu:22.04
+FROM ubuntu:23.10 AS vllm-base
 
 RUN apt-get update  -y \
-    && apt-get install -y git wget vim numactl gcc-12 g++-12 python3 python3-pip \
-    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10 --slave /usr/bin/g++ g++ /usr/bin/g++-12
+    && apt-get install -y git wget vim numactl gcc-13 g++-13 python3 python3-pip \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 10 --slave /usr/bin/g++ g++ /usr/bin/g++-13
 
-RUN pip install --upgrade pip \
+ENV PIP_BREAK_SYSTEM_PACKAGES 1
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
     && pip install wheel packaging ninja setuptools>=49.4.0 numpy
 
 COPY ./ /workspace/vllm
 
 WORKDIR /workspace/vllm
 
-RUN pip install -v -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -v -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
-RUN VLLM_TARGET_DEVICE=cpu python3 setup.py install
+# Whether to build generic version if AVX512 is not detected
+ARG VLLM_CPU_GENERIC 1
 
-CMD ["/bin/bash"]
+RUN VLLM_TARGET_DEVICE=cpu VLLM_CPU_GENERIC=$VLLM_CPU_GENERIC python3 setup.py install
+
+WORKDIR /tmp
+
+#################### OPENAI API SERVER ####################
+# openai api server alternative
+FROM vllm-base AS vllm-openai
+
+# install additional dependencies for openai api server
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install accelerate hf_transfer modelscope
+
+ENV VLLM_USAGE_SOURCE production-docker-image
+
+ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+#################### OPENAI API SERVER ####################

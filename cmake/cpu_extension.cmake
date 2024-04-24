@@ -6,6 +6,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(DEFINED ENV{VLLM_CPU_AVX512BF16})
     set(ENABLE_AVX512BF16 ON)
 endif()
+if(DEFINED ENV{VLLM_CPU_GENERIC})
+    set(ENABLE_CPU_GENERIC ON)
+endif()
 
 include_directories("${CMAKE_SOURCE_DIR}/csrc")
 
@@ -53,8 +56,21 @@ if (AVX512_FOUND)
     else()
         message(WARNING "Disable AVX512-BF16 ISA support, no avx512_bf16 found in local CPU flags." " If cross-compilation is required, please set env VLLM_CPU_AVX512BF16=1.")
     endif()
+elseif (ENABLE_CPU_GENERIC)
+    message(STATUS "Building Generic CPU backend.")
+
+    include(CheckIncludeFileCXX)
+    CHECK_INCLUDE_FILE_CXX(stdfloat HAVE_STDFLOAT "-std=c++23")
+    if (NOT HAVE_STDFLOAT)
+        message(FATAL_ERROR "Generic CPU backend requires C++23 fixed width floating-point types. Please use GCC 13+.")
+    endif()
+
+    list(APPEND CXX_COMPILE_FLAGS
+        "-DVLLM_CPU_GENERIC"
+        "-O3"
+        "-std=c++23")
 else()
-    message(FATAL_ERROR "vLLM CPU backend requires AVX512 ISA support.")
+    message(FATAL_ERROR "vLLM CPU backend requires AVX512 ISA support. To use a generic version, please set env VLLM_CPU_GENERIC=1.")
 endif()
 
 message(STATUS "CPU extension compile flags: ${CXX_COMPILE_FLAGS}")
